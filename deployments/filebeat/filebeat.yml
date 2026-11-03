@@ -1,0 +1,42 @@
+filebeat.inputs:
+  - type: filestream
+    id: access-monitor-json
+    enabled: true
+    paths:
+      - /var/log/access-monitor/events*.jsonl
+    prospector.scanner.fingerprint.length: 64
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+          overwrite_keys: false
+          document_id: event_id
+
+processors:
+  - timestamp:
+      field: observed_at
+      layouts: ['2006-01-02T15:04:05.999999999Z07:00']
+      ignore_missing: true
+  - drop_fields:
+      fields: [agent, ecs, host, input, log]
+      ignore_missing: true
+
+output.elasticsearch:
+  hosts: ['https://elasticsearch:9200']
+  username: filebeat
+  password: '${FILEBEAT_PASSWORD}'
+  ssl.certificate_authorities: [/certs/ca/ca.crt]
+  index: access-monitor-logs-v1
+  indices:
+    - index: access-history-v1
+      when.equals:
+        event_type: access_snapshot
+  backoff.init: 1s
+  backoff.max: 60s
+
+setup.ilm.enabled: false
+setup.template.enabled: false
+http.enabled: true
+http.host: 0.0.0.0
+http.port: 5066
+logging.level: info

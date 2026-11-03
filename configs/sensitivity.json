@@ -1,0 +1,11 @@
+{
+  "namespaces": ["kube-system", "default"],
+  "permissions": [
+    {"api_group":"","resource":"secrets","verbs":["get","list","watch","create","update","patch","delete"]},
+    {"api_group":"","resource":"pods","verbs":["create","delete"]},
+    {"api_group":"","resource":"pods/exec","verbs":["create","get"]},
+    {"api_group":"","resource":"configmaps","verbs":["create","update","patch","delete"]},
+    {"api_group":"","resource":"nodes","verbs":["update","patch","delete"]},
+    {"api_group":"","resource":"namespaces","verbs":["delete"]}
+  ]
+}

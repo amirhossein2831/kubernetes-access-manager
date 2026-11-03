@@ -1,0 +1,41 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Access history
+    uid: access-history
+    type: elasticsearch
+    access: proxy
+    url: https://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_reader
+    jsonData:
+      index: access-history-v1
+      timeField: observed_at
+      esVersion: 9.0.0
+      tlsAuthWithCACert: true
+      logMessageField: username
+    secureJsonData:
+      basicAuthPassword: $GRAFANA_READER_PASSWORD
+      tlsCACert: $__file{/certs/ca/ca.crt}
+  - name: Operational logs
+    uid: access-logs
+    type: elasticsearch
+    access: proxy
+    url: https://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_reader
+    jsonData:
+      index: access-monitor-logs-v1
+      timeField: observed_at
+      esVersion: 9.0.0
+      tlsAuthWithCACert: true
+      logMessageField: message
+      logLevelField: level
+    secureJsonData:
+      basicAuthPassword: $GRAFANA_READER_PASSWORD
+      tlsCACert: $__file{/certs/ca/ca.crt}
