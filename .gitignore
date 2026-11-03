@@ -1,2 +1,8 @@
 docs
 defenition
+.superpowers/
+.env
+secrets/
+bin/
+coverage.out
+*.test
