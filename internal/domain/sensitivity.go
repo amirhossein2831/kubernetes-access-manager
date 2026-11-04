@@ -2,6 +2,19 @@ package domain
 
 import "strings"
 
+type PermissionKey struct {
+	Resource, Verb string
+}
+
+type NamespaceKey struct {
+	Namespace, Resource, Verb string
+}
+
+type Counts struct {
+	Namespace map[NamespaceKey]int
+	Cluster   map[PermissionKey]int
+}
+
 func Count(access []UserAccess, policy Policy) Counts {
 	c := Counts{
 		Namespace: map[NamespaceKey]int{},

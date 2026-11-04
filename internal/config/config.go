@@ -12,8 +12,8 @@ import (
 
 type Config struct {
 	Env        string           `mapstructure:"env"`
-	User       []User           `mapstructure:"-"`
-	Policy     Policy           `mapstructure:"-"`
+	User       string           `mapstructure:"user"`
+	Policy     string           `mapstructure:"policy"`
 	Poll       PollConfig       `mapstructure:"poll"`
 	Kubernetes KubernetesConfig `mapstructure:"kubernetes"`
 	HTTP       HTTPConfig       `mapstructure:"http"`
@@ -24,26 +24,6 @@ type Config struct {
 type PollConfig struct {
 	Interval time.Duration `mapstructure:"interval"`
 	Timeout  time.Duration `mapstructure:"timeout"`
-}
-
-type User struct {
-	Username string   `json:"username"`
-	Groups   []string `json:"groups"`
-}
-type Permission struct {
-	APIGroup string   `json:"api_group"`
-	Resource string   `json:"resource"`
-	Verbs    []string `json:"verbs"`
-}
-type Policy struct {
-	Namespaces  []string     `json:"namespaces"`
-	Permissions []Permission `json:"permissions"`
-}
-
-type rawConfig struct {
-	Config     `mapstructure:",squash"`
-	UserJSON   string `mapstructure:"user"`
-	PolicyJSON string `mapstructure:"policy"`
 }
 
 type KubernetesConfig struct {
@@ -107,26 +87,15 @@ func LoadFrom(dir string) (*Config, error) {
 		return nil, fmt.Errorf("read configuration: %w", err)
 	}
 
-	var raw rawConfig
-	if err := v.UnmarshalExact(&raw); err != nil {
+	var c Config
+	if err := v.UnmarshalExact(&c); err != nil {
 		return nil, fmt.Errorf("decode configuration: %w", err)
 	}
 
-	return parseAndValidate(raw, env)
+	return parseAndValidate(c, env)
 }
 
-func parseAndValidate(raw rawConfig, env string) (*Config, error) {
-	c := raw.Config
-	var err error
-	c.User, err = parseInventory([]byte(raw.UserJSON))
-	if err != nil {
-		return nil, fmt.Errorf("invalid user JSON: %w", err)
-	}
-	c.Policy, err = parsePolicy([]byte(raw.PolicyJSON))
-	if err != nil {
-		return nil, fmt.Errorf("invalid policy JSON: %w", err)
-	}
-
+func parseAndValidate(c Config, env string) (*Config, error) {
 	c.Env = env
 	if c.Poll.Interval <= 0 || c.Poll.Timeout <= 0 || c.Kubernetes.RequestTimeout <= 0 || c.Kubernetes.RequestTimeout > c.Poll.Timeout {
 		return nil, errors.New("invalid polling/request duration")

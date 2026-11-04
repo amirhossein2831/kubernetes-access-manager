@@ -40,7 +40,7 @@ as proof the stack works.
 | Path | Responsibility |
 | --- | --- |
 | `cmd/access-monitor/` | Calls package initializers and runs the Fx application |
-| `internal/config/` | Typed Viper settings and strict startup JSON validation |
+| `internal/config/` | Typed Viper settings; inventory and policy remain JSON strings |
 | `internal/domain/` | Pure RBAC resolution and unique-user counting |
 | `internal/client/kubernetes/` | client-go transport, pagination, discovery and bounded retries |
 | `internal/service/monitor/`, `internal/jobs/` | Collection orchestration and scheduling |
@@ -86,9 +86,10 @@ are inferred from the configuration struct by Viper's struct-binding option, so
 overrides also work when a key is absent from YAML; no manual key list is maintained.
 Missing files, malformed/unknown settings, or missing required values fail startup.
 Inventory and policy are inline JSON strings in YAML keys `user` and `policy`,
-overridable with `APP_USER` and `APP_POLICY`. They are decoded privately during
-startup into public `Config.User` and `Config.Policy` values, using configuration-owned
-types. Each JSON value is limited to 8 MiB. Changes require a restart.
+overridable with `APP_USER` and `APP_POLICY`. `Config.User` and `Config.Policy` retain
+the raw strings. During service construction, domain parsers validate them and return
+domain users and policy directly; invalid inputs fail startup. Each JSON value is
+limited to 8 MiB. Changes require a restart.
 The committed YAML uses a synthetic example user, not the supplied inventory.
 Identity keys are opaque strings, not UUIDs. Duplicate keys/usernames, invalid
 identities, oversized inputs and trailing JSON are rejected.

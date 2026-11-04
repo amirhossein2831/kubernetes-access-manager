@@ -2,23 +2,25 @@ package monitor
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/config"
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/domain"
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/logger"
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/observability/metric"
-	"github.com/amirhossein2831/kubernetes-access-manager/internal/pkg/client/http/kubernetes"
 	"go.uber.org/zap"
 )
 
 type Fetcher interface {
 	Fetch(context.Context) (domain.State, error)
 }
+
 type Emitter interface {
 	Write(any) logger.Results
 }
-type Service struct {
+
+type AccessMonitor struct {
 	cfg     *config.Config
 	users   []domain.User
 	policy  domain.Policy
@@ -27,92 +29,90 @@ type Service struct {
 	log     *zap.Logger
 }
 
-func New(c *config.Config, users []domain.User, p domain.Policy, f Fetcher, e Emitter, log *zap.Logger) *Service {
+func New(c *config.Config, f Fetcher, e Emitter, log *zap.Logger) (*AccessMonitor, error) {
+	users, err := domain.ParseUsers(c.User)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user JSON: %w", err)
+	}
+	policy, err := domain.ParsePolicy(c.Policy)
+	if err != nil {
+		return nil, fmt.Errorf("invalid policy JSON: %w", err)
+	}
 	metric.LoadedUsers.Set(float64(len(users)))
-	return &Service{
-		c,
-		users,
-		p,
-		f,
-		e,
-		log,
-	}
+	return &AccessMonitor{
+		cfg:     c,
+		users:   users,
+		policy:  policy,
+		fetcher: f,
+		emitter: e,
+		log:     log,
+	}, nil
 }
 
-func Init(c *config.Config, client *kubernetes.Client, w *logger.Writer, log *zap.Logger) *Service {
-	users := make([]domain.User, 0, len(c.User))
-	for _, user := range c.User {
-		users = append(users, domain.User{
-			Username: user.Username,
-			Groups:   append([]string{}, user.Groups...),
-		})
-	}
-	p := domain.Policy{
-		Namespaces: append([]string{}, c.Policy.Namespaces...),
-	}
-	for _, permission := range c.Policy.Permissions {
-		p.Permissions = append(p.Permissions, domain.Permission{
-			APIGroup: permission.APIGroup,
-			Resource: permission.Resource,
-			Verbs:    append([]string{}, permission.Verbs...),
-		})
-	}
-	return New(c, users, p, client, w, log)
-}
-
-func (s *Service) Collect(parent context.Context) error {
+func (s *AccessMonitor) Collect(parent context.Context) error {
 	start := time.Now().UTC()
 	snapshot := domain.NewID()
 	ctx, cancel := context.WithTimeout(parent, s.cfg.Poll.Timeout)
 	defer cancel()
-	fail := func(stage string, err error) error {
-		metric.CollectionsTotal.WithLabelValues("failure").Inc()
-		metric.CollectionDuration.Observe(time.Since(start).Seconds())
-		s.log.Error("collection failed", zap.String("snapshot_id", snapshot), zap.String("stage", stage), zap.Error(err))
-		return err
-	}
-	stage := time.Now()
-	state, err := s.fetcher.Fetch(ctx)
-	metric.StageDuration.WithLabelValues("fetch").Observe(time.Since(stage).Seconds())
+
+	state, err := s.fetch(ctx)
 	if err != nil {
-		metric.StageFailuresTotal.WithLabelValues("fetch").Inc()
-		return fail("fetch", err)
+		return s.collectionFailed(snapshot, "fetch", start, err)
 	}
-	stage = time.Now()
+
+	access, err := s.resolve(ctx, state)
+	if err != nil {
+		return s.collectionFailed(snapshot, "resolve", start, err)
+	}
+
+	counts, err := s.count(ctx, access)
+	if err != nil {
+		return s.collectionFailed(snapshot, "count", start, err)
+	}
+
+	observed := time.Now().UTC()
+	metric.CollectionSucceeded(counts, observed, start)
+	s.writeRecords(parent, access, snapshot, start, observed)
+	return nil
+}
+
+func (s *AccessMonitor) fetch(ctx context.Context) (domain.State, error) {
+	start := time.Now()
+	state, err := s.fetcher.Fetch(ctx)
+	observeStage("fetch", start, err)
+	return state, err
+}
+
+func (s *AccessMonitor) resolve(ctx context.Context, state domain.State) ([]domain.UserAccess, error) {
+	start := time.Now()
 	access, err := domain.Resolve(s.users, state)
 	if err == nil {
 		err = ctx.Err()
 	}
-	metric.StageDuration.WithLabelValues("resolve").Observe(time.Since(stage).Seconds())
-	if err != nil {
-		metric.StageFailuresTotal.WithLabelValues("resolve").Inc()
-		return fail("resolve", err)
-	}
-	stage = time.Now()
+	observeStage("resolve", start, err)
+	return access, err
+}
+
+func (s *AccessMonitor) count(ctx context.Context, access []domain.UserAccess) (domain.Counts, error) {
+	start := time.Now()
 	counts := domain.Count(access, s.policy)
-	err = ctx.Err()
-	metric.StageDuration.WithLabelValues("count").Observe(time.Since(stage).Seconds())
+	err := ctx.Err()
+	observeStage("count", start, err)
+	return counts, err
+}
+
+func observeStage(stage string, start time.Time, err error) {
+	metric.StageDuration.WithLabelValues(stage).Observe(time.Since(start).Seconds())
 	if err != nil {
-		metric.StageFailuresTotal.WithLabelValues("count").Inc()
-		return fail("count", err)
+		metric.StageFailuresTotal.WithLabelValues(stage).Inc()
 	}
-	observed := time.Now().UTC()
-	metric.NamespaceSensitiveAccessUsers.Reset()
-	metric.ClusterSensitiveAccessUsers.Reset()
-	for key, count := range counts.Namespace {
-		metric.NamespaceSensitiveAccessUsers.WithLabelValues(key.Namespace, key.Verb, key.Resource).Set(float64(count))
-	}
-	for key, count := range counts.Cluster {
-		metric.ClusterSensitiveAccessUsers.WithLabelValues(key.Resource, key.Verb).Set(float64(count))
-	}
-	metric.LastSuccessfulObservation.Set(float64(observed.Unix()))
-	metric.HasObservation.Set(1)
-	metric.CollectionsTotal.WithLabelValues("success").Inc()
-	metric.CollectionDuration.Observe(time.Since(start).Seconds())
+}
+
+func (s *AccessMonitor) writeRecords(ctx context.Context, access []domain.UserAccess, snapshot string, start, observed time.Time) {
 	allFile := true
-	stage = time.Now()
+	stage := time.Now()
 	for _, a := range access {
-		if parent.Err() != nil {
+		if ctx.Err() != nil {
 			allFile = false
 			break
 		}
@@ -135,5 +135,10 @@ func (s *Service) Collect(parent context.Context) error {
 	if allFile {
 		metric.LastFullFileReport.Set(float64(observed.Unix()))
 	}
-	return nil
+}
+
+func (s *AccessMonitor) collectionFailed(snapshot, stage string, start time.Time, err error) error {
+	metric.CollectionFailed(start)
+	s.log.Error("collection failed", zap.String("snapshot_id", snapshot), zap.String("stage", stage), zap.Error(err))
+	return err
 }

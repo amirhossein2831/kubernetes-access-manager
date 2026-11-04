@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func Init(lc fx.Lifecycle, c *config.Config, s *monitor.Service) {
+func Init(lc fx.Lifecycle, c *config.Config, s *monitor.AccessMonitor) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	started := false
@@ -18,9 +18,9 @@ func Init(lc fx.Lifecycle, c *config.Config, s *monitor.Service) {
 			started = true
 			health.Ready.Store(true)
 			go func() {
-				defer close(done);
-			 Run(ctx, c.Poll.Interval, s.Collect)
-		    }()
+				defer close(done)
+				Run(ctx, c.Poll.Interval, s.Collect)
+			}()
 			return nil
 		},
 		OnStop: func(stop context.Context) error {

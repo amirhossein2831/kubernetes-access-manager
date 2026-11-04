@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -35,12 +36,7 @@ func normalized(r Rule) Rule {
 }
 
 func has(values []string, s string) bool {
-	for _, v := range values {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, s)
 }
 
 func resourceMatches(pattern, resource string) bool {

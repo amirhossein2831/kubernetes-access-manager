@@ -25,6 +25,26 @@ func (f *fetcher) Fetch(context.Context) (domain.State, error) {
 
 type failedSink struct{}
 
+func TestNewRejectsInvalidInputs(t *testing.T) {
+	for _, field := range []string{"user", "policy"} {
+		t.Run(field, func(t *testing.T) {
+			c, err := config.LoadFrom("../../../configs")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if field == "user" {
+				c.User = `{}`
+			} else {
+				c.Policy = `{}`
+			}
+			service, err := New(c, &fetcher{}, logger.NewWriter(&bytes.Buffer{}, &bytes.Buffer{}), zap.NewNop())
+			if err == nil || service != nil || !strings.Contains(err.Error(), "invalid "+field+" JSON") {
+				t.Fatalf("expected %s validation failure, got %v", field, err)
+			}
+		})
+	}
+}
+
 func (failedSink) Write([]byte) (int, error) {
 	return 0, errors.New("file failed")
 }
@@ -35,10 +55,11 @@ func TestCompleteObservationAndFailureFreshness(t *testing.T) {
 	var b bytes.Buffer
 	w := logger.NewWriter(&b, &b)
 	f := &fetcher{}
-	s := New(c, []domain.User{{
-		Username: "ali",
-		Groups:   []string{},
-	}}, domain.Policy{}, f, w, zap.NewNop())
+	c.User = `{"data":[{"internals":{"one":{"username":"ali","groups":[]}}}]}`
+	s, err := New(c, f, w, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Collect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -70,9 +91,11 @@ func TestOutputFailureDoesNotInvalidateMetrics(t *testing.T) {
 	c, _ := config.LoadFrom("../../../configs")
 	r := prometheus.DefaultGatherer
 	var good bytes.Buffer
-	s := New(c, []domain.User{{
-		Username: "ali",
-	}}, domain.Policy{}, &fetcher{}, logger.NewWriter(failedSink{}, &good), zap.NewNop())
+	c.User = `{"data":[{"internals":{"one":{"username":"ali"}}}]}`
+	s, err := New(c, &fetcher{}, logger.NewWriter(failedSink{}, &good), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Collect(context.Background()); err != nil {
 		t.Fatal("output failure misclassified as observation failure", err)
 	}

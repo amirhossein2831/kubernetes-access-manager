@@ -1,9 +1,32 @@
 package metric
 
 import (
+	"time"
+
+	"github.com/amirhossein2831/kubernetes-access-manager/internal/domain"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+func CollectionSucceeded(counts domain.Counts, observed, start time.Time) {
+	NamespaceSensitiveAccessUsers.Reset()
+	ClusterSensitiveAccessUsers.Reset()
+	for key, count := range counts.Namespace {
+		NamespaceSensitiveAccessUsers.WithLabelValues(key.Namespace, key.Verb, key.Resource).Set(float64(count))
+	}
+	for key, count := range counts.Cluster {
+		ClusterSensitiveAccessUsers.WithLabelValues(key.Resource, key.Verb).Set(float64(count))
+	}
+	LastSuccessfulObservation.Set(float64(observed.Unix()))
+	HasObservation.Set(1)
+	CollectionsTotal.WithLabelValues("success").Inc()
+	CollectionDuration.Observe(time.Since(start).Seconds())
+}
+
+func CollectionFailed(start time.Time) {
+	CollectionsTotal.WithLabelValues("failure").Inc()
+	CollectionDuration.Observe(time.Since(start).Seconds())
+}
 
 var NamespaceSensitiveAccessUsers = promauto.NewGaugeVec(
 	prometheus.GaugeOpts{
