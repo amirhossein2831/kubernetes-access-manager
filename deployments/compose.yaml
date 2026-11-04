@@ -68,6 +68,7 @@ services:
   filebeat:
     image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION:-9.5.6}
     user: "0:0"
+    group_add: ["10001"]
     restart: unless-stopped
     entrypoint: [sh, /entrypoint/filebeat.sh]
     command: [filebeat, -e, --strict.perms=false]
@@ -101,7 +102,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_PLUGINS_PREINSTALL: elasticsearch@12.9.5
+      GF_PLUGINS_PREINSTALL_SYNC: prometheus@13.2.4,elasticsearch@12.9.5
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
     entrypoint: [sh, /entrypoint/grafana.sh]
     secrets: [grafana_admin_password, grafana_reader_password]
     ports:

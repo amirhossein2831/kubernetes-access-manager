@@ -4,5 +4,6 @@ providers:
     folder: Access monitor
     type: file
     disableDeletion: true
+    allowUiUpdates: true
     options:
       path: /var/lib/grafana/dashboards

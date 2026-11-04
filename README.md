@@ -248,6 +248,16 @@ default. The combined dashboard is for viewers authorized to see **all** its row
 hiding a row is not access control. Grafana read credentials can read the two selected
 indices; anyone able to use that data source may query beyond a panel's visible filter.
 
+User and snapshot filters are Elasticsearch-backed dropdowns (up to 1,000 values
+within the selected time range). Resource, verb and namespace dropdowns use the
+configured sensitive-policy metric labels, not all recorded RBAC grants. API group
+remains a text input: leave it empty for the core API group. Both access panels
+use raw Elasticsearch DSL; scalar substitutions are explicitly quoted.
+UI dashboard saves are enabled and persist in Grafana's database, not the JSON
+file. Changes to the provisioning JSON can overwrite UI edits; export edits you
+want to keep. Plugin versions are pinned and automatic startup updates disabled
+to avoid replacing a working plugin during queries.
+
 ### Basic manual verification (pending)
 
 Only perform read-only checks; do not mutate interview-cluster RBAC/workloads to
