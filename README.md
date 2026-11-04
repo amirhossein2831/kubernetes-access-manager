@@ -5,11 +5,13 @@ and groups, emits one JSON record per user, and publishes aggregate sensitive-ac
 counts. Filebeat ships the records to Elasticsearch; Prometheus and Grafana provide
 an operational and investigation view.
 
-**Verification status:** Go tests and build are available locally. Container startup,
-Filebeat delivery/rotation, Elasticsearch security, and actual Grafana nested-query
-behavior still require the manual checks below. No live-cluster verification or
-permission probes have been performed. Do not treat static configuration validation
-as proof the stack works.
+**Verification status (2026-11-04):** Go tests, race tests, vet and build passed.
+The local Compose stack was verified against the authorized cluster using read-only
+collection. A complete eight-user snapshot matched across stdout, the report file,
+and Elasticsearch. All 15 data-panel queries and all three Grafana data-source
+health checks succeeded. This is not a production-readiness or outage-recovery claim;
+see [VALIDATION.md](VALIDATION.md) for requirement coverage, evidence and open gaps.
+No impersonation probes or cluster mutations were performed.
 
 ## Scope and trust boundary
 
@@ -42,9 +44,9 @@ as proof the stack works.
 | `cmd/access-monitor/` | Calls package initializers and runs the Fx application |
 | `internal/config/` | Typed Viper settings; user and policy inputs remain JSON strings |
 | `internal/domain/` | User/policy parsing and validation, RBAC resolution, records and unique-user counting |
-| `internal/client/kubernetes/` | client-go transport, pagination, discovery and bounded retries |
+| `internal/pkg/client/http/kubernetes/` | client-go transport, pagination, discovery and bounded retries |
 | `internal/service/monitor/`, `internal/jobs/` | Collection orchestration and scheduling |
-| `internal/output/`, `internal/logger/`, `internal/infrastructure/` | Checked JSON output, Zap diagnostics and rotation |
+| `internal/logger/` | Checked JSON stdout/file output, Zap diagnostics and rotation |
 | `internal/observability/`, `internal/transport/` | Prometheus collectors and Chi/net/http health endpoints |
 | `configs/`, `deployments/`, `build/` | Runtime defaults, Compose, Grafana dashboards/provisioning and image build |
 
@@ -64,16 +66,13 @@ go test ./...
 go test -race ./...
 go vet ./...
 go build -o bin/access-monitor ./cmd/access-monitor
-# Or individually:
-go test ./...
-go test -race ./...
-go vet ./...
-go build -o bin/access-monitor ./cmd/access-monitor
 ```
 
 Tests are Go unit and integration tests, using temporary files, failing writers,
 and local HTTP servers. They need neither the supplied cluster nor Elasticsearch.
 There is no external-service automated suite or cross-service E2E framework.
+Config, domain and entrypoint tests were removed at the repository owner's request;
+passing tests do not establish exhaustive RBAC semantic coverage.
 
 ## Startup configuration
 
@@ -138,17 +137,18 @@ Requires Docker Engine, Compose v2, enough free disk, and memory for Elasticsear
 reports it as insufficient; host tuning is an operator action, not performed by this
 project. No Docker socket or privileged container is required.
 
-Pinned defaults: Elasticsearch/Filebeat **9.5.6**, Grafana **13.3.0**, Elasticsearch
-data-source plugin **12.9.5**, Prometheus **v3.15.1**. Plugin metadata/source documents
-raw DSL query support; runtime compatibility still needs verification. Grafana
-installs the pinned signed plugin on startup and requires network access then.
-Do not infer tested compatibility merely from version pins.
+Pinned defaults: Elasticsearch/Filebeat **9.5.6**, Grafana **13.2.4**, Elasticsearch
+data-source plugin **12.9.5**, Prometheus **v3.14.0**, and Grafana's Prometheus plugin
+**13.2.4**. These versions were exercised together locally. Grafana installs the
+pinned signed plugins synchronously; an empty plugin volume requires network access.
+Automatic plugin updates are disabled. Previously verified plugin copies persist
+in the Grafana data volume; intermittent download failures remain a fresh-install risk.
 
 Version/query references checked during implementation (2026-11-03):
-[Grafana release](https://github.com/grafana/grafana/releases/tag/v13.3.0),
+[Grafana release](https://github.com/grafana/grafana/releases/tag/v13.2.4),
 [Elasticsearch release](https://github.com/elastic/elasticsearch/releases/tag/v9.5.6),
 [Beats release](https://github.com/elastic/beats/releases/tag/v9.5.6),
-[Prometheus release](https://github.com/prometheus/prometheus/releases/tag/v3.15.1),
+[Prometheus release](https://github.com/prometheus/prometheus/releases/tag/v3.14.0),
 [Elasticsearch plugin metadata](https://grafana.com/api/plugins/elasticsearch), and
 [pinned plugin query schema](https://github.com/grafana/grafana-elasticsearch-datasource/blob/v12.9.5/src/dataquery.gen.ts).
 
@@ -242,7 +242,9 @@ running service. Preserve certificate and data volumes across restarts; deleting
 only one side requires deliberate recovery. Normal ingestion/dashboard services
 never receive the elevated `elastic` credential.
 
-Open **http://127.0.0.1:3000**, user `admin`, using the Grafana admin password file.
+Open **http://127.0.0.1:3000** by default, or the port selected by `GRAFANA_PORT`
+in `.env` (the validated local deployment uses **3001**). Use user `admin` and the
+Grafana admin password file. The dashboard URL is `/d/access-monitor`.
 Anonymous access and sign-up are disabled. All other endpoints are internal by
 default. The combined dashboard is for viewers authorized to see **all** its rows;
 hiding a row is not access control. Grafana read credentials can read the two selected
@@ -258,13 +260,13 @@ file. Changes to the provisioning JSON can overwrite UI edits; export edits you
 want to keep. Plugin versions are pinned and automatic startup updates disabled
 to avoid replacing a working plugin during queries.
 
-### Basic manual verification (pending)
+### Repeatable manual verification
 
 Only perform read-only checks; do not mutate interview-cluster RBAC/workloads to
 manufacture fixtures.
 
-1. Confirm setup exits 0, services stay running, and monitor logs show no startup or
-   collection errors. `/livez` means responsiveness; `/readyz` means initialization,
+1. Confirm setup exits 0, services stay running, and inspect monitor startup and
+   collection errors, including historical failures. `/livez` means responsiveness; `/readyz` means initialization,
    not the latest collection or delivery succeeded.
 2. In Grafana Explore, query Prometheus `up{job="access-monitor"}`,
    `access_monitor_has_observation`, observation age and sink errors. Access counts
@@ -288,6 +290,40 @@ manufacture fixtures.
 
 No delivery acknowledgement timestamp or exact pending-snapshot count is claimed.
 The setup's CA private key is sensitive; restrict backup/host access to its volume.
+
+### Checking Filebeat and interpreting health panels
+
+From the repository root, inspect shipping logs and internal statistics:
+
+```sh
+docker compose --env-file deployments/.env -f deployments/compose.yaml logs --since=15m filebeat
+docker compose --env-file deployments/.env -f deployments/compose.yaml exec -T monitor wget -qO- http://filebeat:5066/stats
+```
+
+Compare statistics across collection cycles: `libbeat.output.events.acked` should
+advance as new records arrive; inspect `failed`, `dropped`, pipeline `events.active`
+and queue `filled.events` for delivery trouble. Cumulative counters reset on restart,
+and old failures do not necessarily mean delivery is currently broken. Confirm a
+new file snapshot actually arrives in Elasticsearch; a running container is not proof.
+
+- **Application scrape availability:** Prometheus can scrape the monitor, not proof
+  that collection or shipping works.
+- **Observation age / File report age:** freshness of the last complete observation
+  or file report, respectively; neither measures Elasticsearch acknowledgement.
+- **Collection duration p95:** histogram estimate over 30 minutes, in source seconds
+  with Grafana-scaled time units; includes successful and failed collection attempts.
+- **Output failures / 15 minutes:** stdout/file write failures. The zero fallback
+  also returns zero when telemetry is absent; check scrape availability separately.
+- **Monitor application logs and errors:** historical monitor diagnostics in the
+  selected range, not Kubernetes user activity or logs from every stack component.
+- **Elasticsearch query check — access records:** record count within the selected
+  range. A count, even zero, confirms the query path worked; it is not cluster health,
+  delivery freshness, or an uptime percentage.
+
+No Filebeat or Elasticsearch Prometheus exporter is deployed. Exporters or another
+metrics integration would add queue, delivery and Elasticsearch internals; they are
+future operational improvements, not a prerequisite for the task's two RBAC metrics.
+No full-stack alerting is configured.
 
 ## Records and metrics
 
@@ -325,6 +361,9 @@ Access variables do not filter aggregate Prometheus counts by username.
 
 **Submission caveats:** the task literally requests two dashboards; the selected
 single combined dashboard may require separate exports if the reviewer insists.
+The all-permissions view is expandable log records rather than the task's dedicated
+user-permissions table. Resource/verb dropdowns cover policy values, not every
+recorded grant; the matching query does not expand `*/subresource` wildcard patterns.
 Filebeat is the selected log-processing/shipping application, not a second custom
 Go Elasticsearch client. These interpretations are disclosed, not assumed waived.
 
