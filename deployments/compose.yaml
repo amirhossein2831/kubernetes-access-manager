@@ -18,6 +18,7 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       APP_ENV: ${APP_ENV:-local}
+      APP_USER: ${APP_USER:?set APP_USER to the user JSON string in deployments/.env}
       APP_KUBERNETES_KUBECONFIG: /run/secrets/kubeconfig
     secrets: [kubeconfig]
     volumes:
@@ -85,7 +86,7 @@ services:
     logging: *logging
 
   prometheus:
-    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.15.1}
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.14.0}
     restart: unless-stopped
     command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=7d, --storage.tsdb.retention.size=1GB]
     volumes:

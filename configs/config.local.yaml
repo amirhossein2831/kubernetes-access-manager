@@ -1,14 +1,4 @@
-user: >-
-  {"metadata":{"timestamp":"2025-12-10T15:00:00Z","version":"v1"},"data":[{"internals":{
-  "03d898bf-664b-45e0-a57e-88006ab12929":{"username":"mohammad.jafari","groups":["sre-production","cluster-readonly"]},
-  "f1c7a2d4-89b0-4c1f-a8f2-9876abcd1234":{"username":"jafar.mohammadi","groups":["dev","qa"]},
-  "a2b3c4d5-1234-5678-9101-112131415161":{"username":"ali.ahmadi","groups":["devops","sre-production"]},
-  "b3c4d5e6-2345-6789-1011-121314151617":{"username":"sara.mohammadi","groups":["qa","cluster-readonly"]},
-  "c4d5e6f7-3456-7891-0112-131415161718":{"username":"reza.karimi","groups":["dev","sre-production"]},
-  "d5e6f7g8-4567-8910-1121-314151617181":{"username":"neda.ahmadi","groups":["dev","qa"]},
-  "e6f7g8h9-5678-9101-2131-415161718192":{"username":"amir.karimi","groups":["devops","sre-production"]},
-  "f7g8h9i0-6789-1012-3141-516171819203":{"username":"leila.mohammadi","groups":["qa","cluster-readonly"]}
-  }}]}
+user: '{"data":[{"internals":{"example":{"username":"example-user","groups":[]}}}]}'
 policy: >-
   {"namespaces":["kube-system","default"],"permissions":[
   {"api_group":"","resource":"secrets","verbs":["get","list","watch","create","update","patch","delete"]},

@@ -7,7 +7,8 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /access-monitor ./cmd/access-monitor
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates && addgroup -g 10001 monitor && adduser -D -H -u 10001 -G monitor monitor && mkdir -p /var/log/access-monitor && chown monitor:monitor /var/log/access-monitor
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN addgroup -g 10001 monitor && adduser -D -H -u 10001 -G monitor monitor && mkdir -p /var/log/access-monitor && chown monitor:monitor /var/log/access-monitor
 COPY --from=build /access-monitor /usr/local/bin/access-monitor
 USER 10001:10001
 WORKDIR /app

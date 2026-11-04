@@ -93,14 +93,14 @@ overridable with `APP_USER` and `APP_POLICY`. `Config.User` and `Config.Policy` 
 the raw strings. During service construction, domain parsers validate them and return
 domain users and policy directly; invalid inputs fail startup. Each JSON value is
 limited to 8 MiB. Changes require a restart.
-The local YAML contains the supplied usernames/groups; development and production
-YAML files retain synthetic examples. Review local user data before sharing or committing it.
+Committed YAML files contain synthetic users. Keep actual user inputs in ignored
+`deployments/.env`; do not share or commit that file.
 Identity keys are opaque strings, not UUIDs. Duplicate keys/usernames, invalid
 identities, oversized inputs and trailing JSON are rejected.
 
 | Setting | Environment override | Default |
 | --- | --- | --- |
-| User JSON | `APP_USER` (direct execution only) | Supplied users in local YAML; synthetic examples in other environments |
+| User JSON | `APP_USER` | Synthetic examples in YAML; Compose supplies the value from ignored `.env` |
 | Sensitivity policy JSON | `APP_POLICY` | Inline baseline policy in YAML |
 | Poll interval / work budget | `APP_POLL_INTERVAL` / `APP_POLL_TIMEOUT` | `5m` / `2m` |
 | Kubeconfig | `APP_KUBERNETES_KUBECONFIG` | `/run/secrets/kubeconfig` |
@@ -202,10 +202,12 @@ an encrypted secret store: host root/Docker access and the receiving container c
 read them. File-backed secret `uid`/`mode` remapping is not reliably applied to bind
 sources; check actual readability rather than relying on YAML declarations.
 
-Set `user` and `policy` as JSON strings in `configs/config.<APP_ENV>.yaml`.
-The local configuration contains the supplied usernames/groups and the baseline
-sensitive-access policy. Compose mounts the configuration directory read-only;
-it does not forward `APP_USER` or `APP_POLICY`, and no JSON export is needed.
+Set `APP_USER` to the full user JSON string in ignored `deployments/.env`, using
+the single-quoted format shown in `.env.example`. Keep `policy` in
+`configs/config.<APP_ENV>.yaml`. Compose forwards `APP_USER` and mounts the
+configuration directory read-only; it does not forward `APP_POLICY`.
+Environment values are visible to authorized Docker users; avoid sharing rendered
+Compose configuration, which includes the user JSON. No shell export is needed.
 During service construction, `domain.ParseUsers` and `domain.ParsePolicy` validate
 the strings and create the domain values. Review user data before sharing configuration.
 
@@ -331,8 +333,9 @@ Go Elasticsearch client. These interpretations are disclosed, not assumed waived
 
 For ordinary stop, use `docker compose --env-file deployments/.env -f deployments/compose.yaml down`
 without `-v`. User/policy inputs are loaded once during service construction.
-Changes to `user`, `policy`, or other settings in the selected YAML file require
-a monitor restart. Changing `APP_ENV` requires container recreation via Compose `up -d`.
+Changes to `policy` or other settings in the selected YAML file require a monitor
+restart. Changing `APP_USER` or `APP_ENV` in `.env` requires container recreation
+via Compose `up -d`; a restart alone retains the old environment values.
 
 ### Manual Elasticsearch cleanup
 
