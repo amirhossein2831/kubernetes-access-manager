@@ -16,9 +16,9 @@ as proof the stack works.
 - Runs immediately, then every five minutes by default; one collection at a time,
   skipping missed slots rather than catching up in bursts.
 - Reads RBAC lists, namespace metadata, and discovery metadata, not workload
-  instances or Secret contents. `deployments/auditor-rbac.yaml` documents the required
-  read permissions; an authorized cluster administrator must arrange the binding.
-  This project does not apply it automatically.
+  instances or Secret contents. The administrator setup below documents the required
+  read permissions; an authorized cluster administrator must apply and bind them.
+  This project does not change cluster RBAC automatically.
 - Matches only usernames and groups in the startup inventory. It does **not** invent
   `system:authenticated` membership, impersonate users, or evaluate admission,
   external authorizers, identity-provider membership, or effective authorization.
@@ -40,13 +40,13 @@ as proof the stack works.
 | Path | Responsibility |
 | --- | --- |
 | `cmd/access-monitor/` | Calls package initializers and runs the Fx application |
-| `internal/config/` | Typed Viper settings; inventory and policy remain JSON strings |
-| `internal/domain/` | Pure RBAC resolution and unique-user counting |
+| `internal/config/` | Typed Viper settings; user and policy inputs remain JSON strings |
+| `internal/domain/` | User/policy parsing and validation, RBAC resolution, records and unique-user counting |
 | `internal/client/kubernetes/` | client-go transport, pagination, discovery and bounded retries |
 | `internal/service/monitor/`, `internal/jobs/` | Collection orchestration and scheduling |
 | `internal/output/`, `internal/logger/`, `internal/infrastructure/` | Checked JSON output, Zap diagnostics and rotation |
 | `internal/observability/`, `internal/transport/` | Prometheus collectors and Chi/net/http health endpoints |
-| `configs/`, `deployments/`, `dashboards/`, `build/` | Runtime defaults, Compose, provisioning and image build |
+| `configs/`, `deployments/`, `build/` | Runtime defaults, Compose, Grafana dashboards/provisioning and image build |
 
 The design notes and supplied task files remain locally ignored in `docs/` and
 `defenition/`, as configured by the repository owner. Never add the supplied kubeconfig
@@ -60,7 +60,10 @@ compatible with the installed toolchain, including client-go 0.33.7. Kubernetes
 version-skew compatibility with the target cluster must be checked before use.
 
 ```sh
-make check
+go test ./...
+go test -race ./...
+go vet ./...
+go build -o bin/access-monitor ./cmd/access-monitor
 # Or individually:
 go test ./...
 go test -race ./...
@@ -85,18 +88,19 @@ underscores: `poll.interval` maps to `APP_POLL_INTERVAL`, for example. Supported
 are inferred from the configuration struct by Viper's struct-binding option, so
 overrides also work when a key is absent from YAML; no manual key list is maintained.
 Missing files, malformed/unknown settings, or missing required values fail startup.
-Inventory and policy are inline JSON strings in YAML keys `user` and `policy`,
+User and policy inputs are inline JSON strings in YAML keys `user` and `policy`,
 overridable with `APP_USER` and `APP_POLICY`. `Config.User` and `Config.Policy` retain
 the raw strings. During service construction, domain parsers validate them and return
 domain users and policy directly; invalid inputs fail startup. Each JSON value is
 limited to 8 MiB. Changes require a restart.
-The committed YAML uses a synthetic example user, not the supplied inventory.
+The local YAML contains the supplied usernames/groups; development and production
+YAML files retain synthetic examples. Review local user data before sharing or committing it.
 Identity keys are opaque strings, not UUIDs. Duplicate keys/usernames, invalid
 identities, oversized inputs and trailing JSON are rejected.
 
 | Setting | Environment override | Default |
 | --- | --- | --- |
-| Inventory JSON | `APP_USER` | Synthetic example inventory in YAML |
+| User JSON | `APP_USER` (direct execution only) | Supplied users in local YAML; synthetic examples in other environments |
 | Sensitivity policy JSON | `APP_POLICY` | Inline baseline policy in YAML |
 | Poll interval / work budget | `APP_POLL_INTERVAL` / `APP_POLL_TIMEOUT` | `5m` / `2m` |
 | Kubeconfig | `APP_KUBERNETES_KUBECONFIG` | `/run/secrets/kubeconfig` |
@@ -148,12 +152,43 @@ Version/query references checked during implementation (2026-11-03):
 [Elasticsearch plugin metadata](https://grafana.com/api/plugins/elasticsearch), and
 [pinned plugin query schema](https://github.com/grafana/grafana-elasticsearch-datasource/blob/v12.9.5/src/dataquery.gen.ts).
 
+### Cluster administrator prerequisite
+
+The kubeconfig identity needs cluster-wide list access to RBAC objects and
+namespaces, plus API discovery access. If these permissions are missing, ask an
+authorized cluster administrator to apply this example ClusterRole and create a
+ClusterRoleBinding for the monitor's actual kubeconfig identity or ServiceAccount:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: access-monitor-auditor
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+    verbs: [list]
+  - apiGroups: ['']
+    resources: [namespaces]
+    verbs: [list]
+  - nonResourceURLs: [/api, /api/*, /apis, /apis/*]
+    verbs: [get]
+```
+
+The role alone grants nothing until bound to an identity. No permission to read
+Secret contents or mutate cluster objects is needed. We do not have authorization
+to provision cluster RBAC; this is an administrator prerequisite, not a Compose
+startup step.
+
 From the repository root:
 
 ```sh
 cp deployments/.env.example deployments/.env
 mkdir -p secrets
 chmod 700 secrets
+cp defenition/amirhossein-motaghian.k8s.yaml secrets/kubeconfig
+chmod 600 secrets/kubeconfig
+setfacl -m u:10001:r secrets/kubeconfig
 openssl rand -hex 32 > secrets/elastic-password
 openssl rand -hex 32 > secrets/filebeat-password
 openssl rand -hex 32 > secrets/grafana-reader-password
@@ -167,16 +202,12 @@ an encrypted secret store: host root/Docker access and the receiving container c
 read them. File-backed secret `uid`/`mode` remapping is not reliably applied to bind
 sources; check actual readability rather than relying on YAML declarations.
 
-Export the supplied inventory as JSON before Compose validation/startup:
-
-```sh
-export APP_USER="$(cat defenition/input.json)"
-```
-
-Do not print this value or commit it. Unlike credentials, inventory is now passed
-as an environment value by explicit configuration choice; it is visible in container
-inspection and process environments to authorized host/container users. Avoid sharing
-rendered Compose configuration because it includes that value.
+Set `user` and `policy` as JSON strings in `configs/config.<APP_ENV>.yaml`.
+The local configuration contains the supplied usernames/groups and the baseline
+sensitive-access policy. Compose mounts the configuration directory read-only;
+it does not forward `APP_USER` or `APP_POLICY`, and no JSON export is needed.
+During service construction, `domain.ParseUsers` and `domain.ParsePolicy` validate
+the strings and create the domain values. Review user data before sharing configuration.
 
 Edit `deployments/.env` paths, especially `KUBECONFIG_FILE`. This is a Compose
 manifest environment file, not a service dotenv file; it includes `APP_ENV=local`,
@@ -184,7 +215,7 @@ which Compose explicitly forwards to the monitor. Relative paths are resolved fr
 `deployments/` by Compose. The monitor runs as UID/GID 10001; arrange
 read access for that identity using a restricted dedicated copy or ACL. Do not make
 the original credential world-readable. Use absolute paths if that is less ambiguous.
-The inventory no longer requires a container file mount. `deployments/.env` contains settings and
+The user JSON does not require a container file mount. `deployments/.env` contains settings and
 paths, **not** credential values. Do not regenerate passwords during an ordinary
 restart: Elasticsearch's bootstrap password does not reset an existing data volume.
 
@@ -299,8 +330,9 @@ Go Elasticsearch client. These interpretations are disclosed, not assumed waived
   on named volumes. Persistence is not backup; never use `down -v` as a routine stop.
 
 For ordinary stop, use `docker compose --env-file deployments/.env -f deployments/compose.yaml down`
-without `-v`. Configuration/inventory changes require monitor restart. Renaming
-inventory files on the host may require container recreation to refresh a bind mount.
+without `-v`. User/policy inputs are loaded once during service construction.
+Changes to `user`, `policy`, or other settings in the selected YAML file require
+a monitor restart. Changing `APP_ENV` requires container recreation via Compose `up -d`.
 
 ### Manual Elasticsearch cleanup
 

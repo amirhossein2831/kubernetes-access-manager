@@ -18,7 +18,6 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       APP_ENV: ${APP_ENV:-local}
-      APP_USER: ${APP_USER:?set APP_USER to inventory JSON}
       APP_KUBERNETES_KUBECONFIG: /run/secrets/kubeconfig
     secrets: [kubeconfig]
     volumes:
@@ -95,7 +94,7 @@ services:
     logging: *logging
 
   grafana:
-    image: grafana/grafana:${GRAFANA_VERSION:-13.3.0}
+    image: grafana/grafana:${GRAFANA_VERSION:-13.2.4}
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
@@ -110,7 +109,7 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/entrypoint.sh:/entrypoint/grafana.sh:ro
-      - ../dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - certs:/certs:ro
     depends_on:
       setup:
