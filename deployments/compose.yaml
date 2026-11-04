@@ -17,12 +17,12 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
-      APP_INPUT_PATH: /app/input.json
+      APP_ENV: ${APP_ENV:-local}
+      APP_USER: ${APP_USER:?set APP_USER to inventory JSON}
       APP_KUBERNETES_KUBECONFIG: /run/secrets/kubeconfig
     secrets: [kubeconfig]
     volumes:
       - ../configs:/app/configs:ro
-      - ${INPUT_FILE:?set INPUT_FILE}:/app/input.json:ro
       - application_logs:/var/log/access-monitor
     stop_grace_period: 15s
     logging: *logging

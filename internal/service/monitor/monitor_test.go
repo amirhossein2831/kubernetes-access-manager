@@ -10,32 +10,40 @@ import (
 
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/config"
 	"github.com/amirhossein2831/kubernetes-access-manager/internal/domain"
-	"github.com/amirhossein2831/kubernetes-access-manager/internal/observability"
-	"github.com/amirhossein2831/kubernetes-access-manager/internal/output"
+	"github.com/amirhossein2831/kubernetes-access-manager/internal/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
-type fetcher struct{ err error }
+type fetcher struct {
+	err error
+}
 
-func (f *fetcher) Fetch(context.Context) (domain.State, error) { return domain.State{}, f.err }
+func (f *fetcher) Fetch(context.Context) (domain.State, error) {
+	return domain.State{}, f.err
+}
 
 type failedSink struct{}
 
-func (failedSink) Write([]byte) (int, error) { return 0, errors.New("file failed") }
+func (failedSink) Write([]byte) (int, error) {
+	return 0, errors.New("file failed")
+}
+
 func TestCompleteObservationAndFailureFreshness(t *testing.T) {
-	c, _ := config.LoadFrom(t.TempDir())
-	r := prometheus.NewRegistry()
-	m := observability.New(r)
+	c, _ := config.LoadFrom("../../../configs")
+	r := prometheus.DefaultGatherer
 	var b bytes.Buffer
-	w := output.New(&b, &b)
+	w := logger.NewWriter(&b, &b)
 	f := &fetcher{}
-	s := New(c, []domain.User{{Username: "ali", Groups: []string{}}}, domain.Policy{}, f, w, m, zap.NewNop())
+	s := New(c, []domain.User{{
+		Username: "ali",
+		Groups:   []string{},
+	}}, domain.Policy{}, f, w, zap.NewNop())
 	if err := s.Collect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
-	var rec output.Record
+	var rec domain.Record
 	if err := json.Unmarshal([]byte(lines[0]), &rec); err != nil {
 		t.Fatal(err)
 	}
@@ -57,12 +65,14 @@ func TestCompleteObservationAndFailureFreshness(t *testing.T) {
 		}
 	}
 }
+
 func TestOutputFailureDoesNotInvalidateMetrics(t *testing.T) {
-	c, _ := config.LoadFrom(t.TempDir())
-	r := prometheus.NewRegistry()
-	m := observability.New(r)
+	c, _ := config.LoadFrom("../../../configs")
+	r := prometheus.DefaultGatherer
 	var good bytes.Buffer
-	s := New(c, []domain.User{{Username: "ali"}}, domain.Policy{}, &fetcher{}, output.New(failedSink{}, &good), m, zap.NewNop())
+	s := New(c, []domain.User{{
+		Username: "ali",
+	}}, domain.Policy{}, &fetcher{}, logger.NewWriter(failedSink{}, &good), zap.NewNop())
 	if err := s.Collect(context.Background()); err != nil {
 		t.Fatal("output failure misclassified as observation failure", err)
 	}

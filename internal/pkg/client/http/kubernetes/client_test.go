@@ -16,7 +16,7 @@ import (
 
 func settings(t *testing.T) *config.Config {
 	t.Helper()
-	c, err := config.LoadFrom(t.TempDir())
+	c, err := config.LoadFrom("../../../../../configs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,9 @@ func TestFetchPaginationAndDiscovery(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := NewWithREST(settings(t), &rest.Config{Host: server.URL})
+	client, err := NewWithREST(settings(t), &rest.Config{
+		Host: server.URL,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,9 @@ func TestBoundedRetriesAndPermanentFailures(t *testing.T) {
 			var calls atomic.Int32
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(status) }))
 			defer s.Close()
-			c, _ := NewWithREST(settings(t), &rest.Config{Host: s.URL})
+			c, _ := NewWithREST(settings(t), &rest.Config{
+				Host: s.URL,
+			})
 			_, err := c.Fetch(context.Background())
 			if err == nil {
 				t.Fatal("failed request accepted")
@@ -91,7 +95,9 @@ func TestBoundedRetriesAndPermanentFailures(t *testing.T) {
 func TestCancellationAndUntrustedAuthentication(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer s.Close()
-	c, _ := NewWithREST(settings(t), &rest.Config{Host: s.URL})
+	c, _ := NewWithREST(settings(t), &rest.Config{
+		Host: s.URL,
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	if _, err := c.Fetch(ctx); err == nil {

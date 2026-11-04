@@ -19,7 +19,12 @@ func canonical(values []string) []string {
 	sort.Strings(out)
 	return out
 }
-func encoded(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+func encoded(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
 func normalized(r Rule) Rule {
 	r.APIGroups = canonical(r.APIGroups)
 	r.Resources = canonical(r.Resources)
@@ -28,6 +33,7 @@ func normalized(r Rule) Rule {
 	r.NonResourceURLs = canonical(r.NonResourceURLs)
 	return r
 }
+
 func has(values []string, s string) bool {
 	for _, v := range values {
 		if v == s {
@@ -36,6 +42,7 @@ func has(values []string, s string) bool {
 	}
 	return false
 }
+
 func resourceMatches(pattern, resource string) bool {
 	if pattern == "*" || pattern == resource {
 		return true
@@ -43,8 +50,14 @@ func resourceMatches(pattern, resource string) bool {
 	parts := strings.SplitN(resource, "/", 2)
 	return len(parts) == 2 && pattern == "*/"+parts[1]
 }
-func groupMatches(pattern, group string) bool     { return pattern == "*" || pattern == group }
-func roleKey(kind, namespace, name string) string { return kind + "\x00" + namespace + "\x00" + name }
+
+func groupMatches(pattern, group string) bool {
+	return pattern == "*" || pattern == group
+}
+
+func roleKey(kind, namespace, name string) string {
+	return kind + "\x00" + namespace + "\x00" + name
+}
 
 func Resolve(users []User, state State) ([]UserAccess, error) {
 	roles := map[string]Role{}
@@ -53,7 +66,14 @@ func Resolve(users []User, state State) ([]UserAccess, error) {
 	}
 	out := make([]UserAccess, 0, len(users))
 	for _, user := range users {
-		a := UserAccess{User: User{Username: user.Username, Groups: canonical(user.Groups)}, Grants: []Grant{}, NonResourceGrants: []NonResourceGrant{}}
+		a := UserAccess{
+			User: User{
+				Username: user.Username,
+				Groups:   canonical(user.Groups),
+			},
+			Grants:            []Grant{},
+			NonResourceGrants: []NonResourceGrant{},
+		}
 		grants := map[string]Grant{}
 		urls := map[string]NonResourceGrant{}
 		for _, b := range state.Bindings {
@@ -80,9 +100,27 @@ func Resolve(users []User, state State) ([]UserAccess, error) {
 			}
 			for _, raw := range role.Rules {
 				rule := normalized(raw)
-				source := Source{Binding: Reference{Kind: b.Kind, Name: b.Name, Namespace: b.Namespace, UID: b.UID}, Role: Reference{Kind: role.Kind, Name: role.Name, Namespace: role.Namespace, UID: role.UID}, MatchedSubjects: matched, Rule: rule}
+				source := Source{
+					Binding: Reference{
+						Kind:      b.Kind,
+						Name:      b.Name,
+						Namespace: b.Namespace,
+						UID:       b.UID,
+					},
+					Role: Reference{
+						Kind:      role.Kind,
+						Name:      role.Name,
+						Namespace: role.Namespace,
+						UID:       role.UID,
+					},
+					MatchedSubjects: matched,
+					Rule:            rule,
+				}
 				if b.Kind == "ClusterRoleBinding" && len(rule.NonResourceURLs) > 0 {
-					g := NonResourceGrant{URLs: rule.NonResourceURLs, Verbs: rule.Verbs}
+					g := NonResourceGrant{
+						URLs:  rule.NonResourceURLs,
+						Verbs: rule.Verbs,
+					}
 					key := encoded(g)
 					g = urlsOrNew(urls, key, g)
 					g.Sources = appendSource(g.Sources, source)
@@ -112,7 +150,14 @@ func Resolve(users []User, state State) ([]UserAccess, error) {
 								scope = "namespace"
 								ns = b.Namespace
 							}
-							g := Grant{Scope: scope, Namespace: ns, APIGroup: group, Resource: resource, Verbs: rule.Verbs, ResourceNames: rule.ResourceNames}
+							g := Grant{
+								Scope:         scope,
+								Namespace:     ns,
+								APIGroup:      group,
+								Resource:      resource,
+								Verbs:         rule.Verbs,
+								ResourceNames: rule.ResourceNames,
+							}
 							key := encoded(g)
 							if old, ok := grants[key]; ok {
 								g = old
@@ -139,12 +184,14 @@ func Resolve(users []User, state State) ([]UserAccess, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
 	return out, nil
 }
+
 func urlsOrNew(m map[string]NonResourceGrant, key string, g NonResourceGrant) NonResourceGrant {
 	if old, ok := m[key]; ok {
 		return old
 	}
 	return g
 }
+
 func appendSource(sources []Source, source Source) []Source {
 	key := encoded(source)
 	for _, s := range sources {

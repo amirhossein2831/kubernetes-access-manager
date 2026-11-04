@@ -3,13 +3,23 @@ package domain
 import "strings"
 
 func Count(access []UserAccess, policy Policy) Counts {
-	c := Counts{Namespace: map[NamespaceKey]int{}, Cluster: map[PermissionKey]int{}}
+	c := Counts{
+		Namespace: map[NamespaceKey]int{},
+		Cluster:   map[PermissionKey]int{},
+	}
 	for _, p := range policy.Permissions {
 		for _, v := range p.Verbs {
-			c.Cluster[PermissionKey{p.Resource, v}] = 0
+			c.Cluster[PermissionKey{
+				p.Resource,
+				v,
+			}] = 0
 			for _, ns := range policy.Namespaces {
 				if p.Resource != "nodes" && p.Resource != "namespaces" {
-					c.Namespace[NamespaceKey{ns, p.Resource, v}] = 0
+					c.Namespace[NamespaceKey{
+						ns,
+						p.Resource,
+						v,
+					}] = 0
 				}
 			}
 		}
@@ -34,12 +44,19 @@ func Count(access []UserAccess, policy Policy) Counts {
 						continue
 					}
 					if g.Scope == "cluster" || g.Scope == "all_namespaces" {
-						global[PermissionKey{p.Resource, v}] = true
+						global[PermissionKey{
+							p.Resource,
+							v,
+						}] = true
 					}
 					if !clusterResource {
 						for _, ns := range policy.Namespaces {
 							if g.Scope == "all_namespaces" || g.Scope == "namespace" && g.Namespace == ns {
-								local[NamespaceKey{ns, p.Resource, v}] = true
+								local[NamespaceKey{
+									ns,
+									p.Resource,
+									v,
+								}] = true
 							}
 						}
 					}

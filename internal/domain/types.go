@@ -78,8 +78,12 @@ type UserAccess struct {
 	Grants            []Grant            `json:"grants"`
 	NonResourceGrants []NonResourceGrant `json:"non_resource_grants"`
 }
-type PermissionKey struct{ Resource, Verb string }
-type NamespaceKey struct{ Namespace, Resource, Verb string }
+type PermissionKey struct {
+	Resource, Verb string
+}
+type NamespaceKey struct {
+	Namespace, Resource, Verb string
+}
 type Counts struct {
 	Namespace map[NamespaceKey]int
 	Cluster   map[PermissionKey]int

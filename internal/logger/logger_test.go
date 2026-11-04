@@ -1,4 +1,4 @@
-package output
+package logger
 
 import (
 	"bytes"
@@ -11,15 +11,18 @@ import (
 
 type broken struct{}
 
-func (broken) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+func (broken) Write([]byte) (int, error) {
+	return 0, errors.New("disk full")
+}
+
 func TestIndependentSinks(t *testing.T) {
 	for _, badFile := range []bool{true, false} {
 		var good bytes.Buffer
 		var w *Writer
 		if badFile {
-			w = New(broken{}, &good)
+			w = NewWriter(broken{}, &good)
 		} else {
-			w = New(&good, broken{})
+			w = NewWriter(&good, broken{})
 		}
 		r := w.Write(map[string]string{"event_type": "access_snapshot"})
 		if (r.File == nil) == badFile || (r.Stdout == nil) != badFile {
@@ -30,9 +33,10 @@ func TestIndependentSinks(t *testing.T) {
 		}
 	}
 }
+
 func TestConcurrentJSONLines(t *testing.T) {
 	var file, stdout bytes.Buffer
-	w := New(&file, &stdout)
+	w := NewWriter(&file, &stdout)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)

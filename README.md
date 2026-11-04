@@ -39,7 +39,7 @@ as proof the stack works.
 
 | Path | Responsibility |
 | --- | --- |
-| `cmd/access-monitor/` | Fx composition root and process lifecycle |
+| `cmd/access-monitor/` | Calls package initializers and runs the Fx application |
 | `internal/config/` | Typed Viper settings and strict startup JSON validation |
 | `internal/domain/` | Pure RBAC resolution and unique-user counting |
 | `internal/client/kubernetes/` | client-go transport, pagination, discovery and bounded retries |
@@ -74,24 +74,29 @@ There is no external-service automated suite or cross-service E2E framework.
 
 ## Startup configuration
 
-Precedence, lowest to highest:
+`APP_ENV` selects one required file in `configs/`: `config.local.yaml`,
+`config.development.yaml`, or `config.production.yaml`. An unset `APP_ENV` selects
+`local`. There is no `APP_CONFIG_DIR`, base-file merge, or code-level setting defaults.
+The environment files currently share the task baseline; production naming does not
+imply production sizing or hardening.
 
-1. Code defaults.
-2. `configs/config.yaml`.
-3. `configs/config.<APP_ENV>.yaml`.
-4. `APP_*` environment overrides (nested dots become underscores).
-
-`APP_ENV` accepts `local` (default), `staging`, or `production`.
-`APP_CONFIG_DIR` selects the configuration directory. Missing optional YAML files
-are allowed; malformed or unknown settings fail startup. Inventory and policy are
-strict JSON inputs, loaded once and limited to 8 MiB each. Changes require a restart.
+`APP_*` environment overrides take precedence over file values. Nested dots become
+underscores: `poll.interval` maps to `APP_POLL_INTERVAL`, for example. Supported keys
+are inferred from the configuration struct by Viper's struct-binding option, so
+overrides also work when a key is absent from YAML; no manual key list is maintained.
+Missing files, malformed/unknown settings, or missing required values fail startup.
+Inventory and policy are inline JSON strings in YAML keys `user` and `policy`,
+overridable with `APP_USER` and `APP_POLICY`. They are decoded privately during
+startup into public `Config.User` and `Config.Policy` values, using configuration-owned
+types. Each JSON value is limited to 8 MiB. Changes require a restart.
+The committed YAML uses a synthetic example user, not the supplied inventory.
 Identity keys are opaque strings, not UUIDs. Duplicate keys/usernames, invalid
 identities, oversized inputs and trailing JSON are rejected.
 
 | Setting | Environment override | Default |
 | --- | --- | --- |
-| Inventory path | `APP_INPUT_PATH` | `defenition/input.json` |
-| Sensitivity policy | `APP_POLICY_PATH` | `configs/sensitivity.json` |
+| Inventory JSON | `APP_USER` | Synthetic example inventory in YAML |
+| Sensitivity policy JSON | `APP_POLICY` | Inline baseline policy in YAML |
 | Poll interval / work budget | `APP_POLL_INTERVAL` / `APP_POLL_TIMEOUT` | `5m` / `2m` |
 | Kubeconfig | `APP_KUBERNETES_KUBECONFIG` | `/run/secrets/kubeconfig` |
 | Request timeout / total attempts | `APP_KUBERNETES_REQUEST_TIMEOUT` / `APP_KUBERNETES_ATTEMPTS` | `20s` / `3` |
@@ -112,6 +117,7 @@ with embedded credentials avoids additional mounts. Do not print its contents.
 For a local run, explicitly set a writable output path and credential path:
 
 ```sh
+APP_USER="$(cat defenition/input.json)" \
 APP_KUBERNETES_KUBECONFIG=/secure/path/kubeconfig \
 APP_OUTPUT_PATH=./var/log/access-monitor/events.jsonl \
 ./bin/access-monitor
@@ -144,7 +150,7 @@ Version/query references checked during implementation (2026-11-03):
 From the repository root:
 
 ```sh
-cp .env.example .env
+cp deployments/.env.example deployments/.env
 mkdir -p secrets
 chmod 700 secrets
 openssl rand -hex 32 > secrets/elastic-password
@@ -160,26 +166,39 @@ an encrypted secret store: host root/Docker access and the receiving container c
 read them. File-backed secret `uid`/`mode` remapping is not reliably applied to bind
 sources; check actual readability rather than relying on YAML declarations.
 
-Edit `.env` paths, especially `KUBECONFIG_FILE`. Relative paths are resolved from
-`deployments/` by Compose, not from `.env`. The monitor runs as UID/GID 10001; arrange
+Export the supplied inventory as JSON before Compose validation/startup:
+
+```sh
+export APP_USER="$(cat defenition/input.json)"
+```
+
+Do not print this value or commit it. Unlike credentials, inventory is now passed
+as an environment value by explicit configuration choice; it is visible in container
+inspection and process environments to authorized host/container users. Avoid sharing
+rendered Compose configuration because it includes that value.
+
+Edit `deployments/.env` paths, especially `KUBECONFIG_FILE`. This is a Compose
+manifest environment file, not a service dotenv file; it includes `APP_ENV=local`,
+which Compose explicitly forwards to the monitor. Relative paths are resolved from
+`deployments/` by Compose. The monitor runs as UID/GID 10001; arrange
 read access for that identity using a restricted dedicated copy or ACL. Do not make
 the original credential world-readable. Use absolute paths if that is less ambiguous.
-The inventory also must be readable inside the monitor. `.env` contains settings and
+The inventory no longer requires a container file mount. `deployments/.env` contains settings and
 paths, **not** credential values. Do not regenerate passwords during an ordinary
 restart: Elasticsearch's bootstrap password does not reset an existing data volume.
 
 Validate without building, pulling, or starting anything:
 
 ```sh
-docker compose --env-file .env -f deployments/compose.yaml config --quiet
+docker compose --env-file deployments/.env -f deployments/compose.yaml config --quiet
 ```
 
 When you choose to start the test phase:
 
 ```sh
-docker compose --env-file .env -f deployments/compose.yaml up -d --build
-docker compose --env-file .env -f deployments/compose.yaml ps -a
-docker compose --env-file .env -f deployments/compose.yaml logs --tail=100 setup monitor filebeat grafana
+docker compose --env-file deployments/.env -f deployments/compose.yaml up -d --build
+docker compose --env-file deployments/.env -f deployments/compose.yaml ps -a
+docker compose --env-file deployments/.env -f deployments/compose.yaml logs --tail=100 setup monitor filebeat grafana
 ```
 
 The monitor is independent of Elasticsearch startup. Setup generates a local CA and
@@ -278,7 +297,7 @@ Go Elasticsearch client. These interpretations are disclosed, not assumed waived
 - Logs, Filebeat state, Elasticsearch, Prometheus, Grafana and certificates persist
   on named volumes. Persistence is not backup; never use `down -v` as a routine stop.
 
-For ordinary stop, use `docker compose --env-file .env -f deployments/compose.yaml down`
+For ordinary stop, use `docker compose --env-file deployments/.env -f deployments/compose.yaml down`
 without `-v`. Configuration/inventory changes require monitor restart. Renaming
 inventory files on the host may require container recreation to refresh a bind mount.
 

@@ -1,5 +1,6 @@
 .git
 .env
+deployments/.env
 secrets
 defenition
 docs

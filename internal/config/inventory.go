@@ -9,8 +9,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/amirhossein2831/kubernetes-access-manager/internal/domain"
 )
 
 const maxInputBytes = 8 * 1024 * 1024
@@ -25,6 +23,13 @@ func decodeFile(path string, target any) error {
 	if err != nil {
 		return err
 	}
+	if len(b) > maxInputBytes {
+		return errors.New("startup input exceeds 8 MiB")
+	}
+	return decodeJSON(b, target)
+}
+
+func decodeJSON(b []byte, target any) error {
 	if len(b) > maxInputBytes {
 		return errors.New("startup input exceeds 8 MiB")
 	}
@@ -85,7 +90,20 @@ func uniqueJSON(d *json.Decoder) error {
 	return err
 }
 
-func LoadInventory(path string) ([]domain.User, error) {
+func LoadInventory(path string) ([]User, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxInputBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	return parseInventory(b)
+}
+
+func parseInventory(b []byte) ([]User, error) {
 	var input struct {
 		Metadata struct {
 			Timestamp string `json:"timestamp"`
@@ -105,10 +123,10 @@ func LoadInventory(path string) ([]domain.User, error) {
 			} `json:"internals"`
 		} `json:"data"`
 	}
-	if err := decodeFile(path, &input); err != nil {
+	if err := decodeJSON(b, &input); err != nil {
 		return nil, err
 	}
-	users := []domain.User{}
+	users := []User{}
 	seen := map[string]bool{}
 	for _, block := range input.Data {
 		for _, u := range block.Internals {
@@ -131,7 +149,10 @@ func LoadInventory(path string) ([]domain.User, error) {
 				normalized = append(normalized, g)
 			}
 			sort.Strings(normalized)
-			users = append(users, domain.User{Username: u.Username, Groups: normalized})
+			users = append(users, User{
+				Username: u.Username,
+				Groups:   normalized,
+			})
 		}
 	}
 	if len(users) == 0 {
@@ -141,9 +162,9 @@ func LoadInventory(path string) ([]domain.User, error) {
 	return users, nil
 }
 
-func LoadPolicy(path string) (domain.Policy, error) {
-	var p domain.Policy
-	if err := decodeFile(path, &p); err != nil {
+func parsePolicy(b []byte) (Policy, error) {
+	var p Policy
+	if err := decodeJSON(b, &p); err != nil {
 		return p, err
 	}
 	if len(p.Namespaces) == 0 || len(p.Permissions) == 0 {

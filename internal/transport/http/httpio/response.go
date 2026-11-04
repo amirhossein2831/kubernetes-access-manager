@@ -9,9 +9,16 @@ type Response struct {
 	status int
 	body   any
 }
+
 type Handler func(*http.Request) (*Response, error)
 
-func JSON(status int, body any) *Response { return &Response{status, body} }
+func JSON(status int, body any) *Response {
+	return &Response{
+		status,
+		body,
+	}
+}
+
 func Wrap(h Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, err := h(r)
