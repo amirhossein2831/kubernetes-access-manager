@@ -1,0 +1,32 @@
+{
+  "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "@timestamp": {"type":"date"},
+      "schema_version": {"type":"keyword"},
+      "event_type": {"type":"keyword"},
+      "event_id": {"type":"keyword"},
+      "snapshot_id": {"type":"keyword"},
+      "observed_at": {"type":"date"},
+      "started_at": {"type":"date"},
+      "expected_users": {"type":"integer"},
+      "identity_basis": {"type":"keyword"},
+      "username": {"type":"keyword"},
+      "groups": {"type":"keyword"},
+      "grants": {
+        "type":"nested",
+        "properties": {
+          "scope": {"type":"keyword"},
+          "namespace": {"type":"keyword"},
+          "api_group": {"type":"keyword"},
+          "resource": {"type":"keyword"},
+          "verbs": {"type":"keyword"},
+          "resource_names": {"type":"keyword"},
+          "sources": {"type":"object","enabled":false}
+        }
+      },
+      "non_resource_grants": {"type":"object","enabled":false}
+    }
+  }
+}

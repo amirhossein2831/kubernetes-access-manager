@@ -1,0 +1,140 @@
+name: access-monitor
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  monitor:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_USER: ${APP_USER:?set APP_USER to the user JSON string in deployments/.env}
+      APP_KUBERNETES_KUBECONFIG: /run/secrets/kubeconfig
+    secrets: [kubeconfig]
+    volumes:
+      - ../configs:/app/configs:ro
+      - application_logs:/var/log/access-monitor
+    stop_grace_period: 15s
+    logging: *logging
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.5.6}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "true"
+      xpack.security.http.ssl.key: certs/elasticsearch/elasticsearch.key
+      xpack.security.http.ssl.certificate: certs/elasticsearch/elasticsearch.crt
+      xpack.security.http.ssl.certificate_authorities: certs/ca/ca.crt
+      ELASTIC_PASSWORD_FILE: /run/secrets/elastic_password
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    secrets: [elastic_password]
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+      - certs:/usr/share/elasticsearch/config/certs:ro
+    depends_on:
+      setup:
+        condition: service_started
+    healthcheck:
+      test: [CMD-SHELL, 'curl --silent --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q "missing authentication credentials"']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1536m
+    logging: *logging
+
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.5.6}
+    user: "0:0"
+    restart: "no"
+    entrypoint: [bash, /setup/setup.sh]
+    secrets: [elastic_password, filebeat_password, grafana_reader_password]
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - ./elasticsearch:/setup:ro
+    logging: *logging
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION:-9.5.6}
+    user: "0:0"
+    group_add: ["10001"]
+    restart: unless-stopped
+    entrypoint: [sh, /entrypoint/filebeat.sh]
+    command: [filebeat, -e, --strict.perms=false]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    secrets: [filebeat_password]
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./filebeat/entrypoint.sh:/entrypoint/filebeat.sh:ro
+      - application_logs:/var/log/access-monitor:ro
+      - filebeat_data:/usr/share/filebeat/data
+      - certs:/certs:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    logging: *logging
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.14.0}
+    restart: unless-stopped
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=7d, --storage.tsdb.retention.size=1GB]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-13.2.4}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_PREINSTALL_SYNC: prometheus@13.2.4,elasticsearch@12.9.5
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+    entrypoint: [sh, /entrypoint/grafana.sh]
+    secrets: [grafana_admin_password, grafana_reader_password]
+    ports:
+      - 127.0.0.1:${GRAFANA_PORT:-3000}:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/entrypoint.sh:/entrypoint/grafana.sh:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - certs:/certs:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    logging: *logging
+
+secrets:
+  kubeconfig:
+    file: ${KUBECONFIG_FILE:?set KUBECONFIG_FILE}
+  elastic_password:
+    file: ${ELASTIC_PASSWORD_FILE:?set ELASTIC_PASSWORD_FILE}
+  filebeat_password:
+    file: ${FILEBEAT_PASSWORD_FILE:?set FILEBEAT_PASSWORD_FILE}
+  grafana_reader_password:
+    file: ${GRAFANA_READER_PASSWORD_FILE:?set GRAFANA_READER_PASSWORD_FILE}
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:?set GRAFANA_ADMIN_PASSWORD_FILE}
+
+volumes:
+  application_logs:
+  elastic_data:
+  filebeat_data:
+  prometheus_data:
+  grafana_data:
+  certs:

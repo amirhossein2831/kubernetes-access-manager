@@ -1,2 +1,10 @@
 docs
 defenition
+.superpowers/
+.env
+deployments/.env
+secrets/
+bin/
+coverage.out
+*.test
+.idea

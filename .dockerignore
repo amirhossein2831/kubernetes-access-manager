@@ -1,0 +1,10 @@
+.git
+.env
+deployments/.env
+secrets
+defenition
+docs
+.superpowers
+bin
+var
+coverage.out
