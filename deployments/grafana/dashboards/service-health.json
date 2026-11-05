@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "utc",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "tags": [
+    "security",
+    "rbac"
+  ],
+  "links": [
+    {
+      "title": "Service health",
+      "type": "link",
+      "url": "/d/access-monitor-health",
+      "keepTime": true,
+      "includeVars": false
+    },
+    {
+      "title": "User access",
+      "type": "link",
+      "url": "/d/access-monitor",
+      "keepTime": true,
+      "includeVars": false
+    },
+    {
+      "title": "Sensitive access",
+      "type": "link",
+      "url": "/d/access-monitor-sensitive",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "uid": "access-monitor-health",
+  "title": "Service health",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Elasticsearch query check — access records",
+      "description": "Number of access records in the selected time range. A returned count, including zero, confirms the authenticated Grafana-to-Elasticsearch query works. An error or missing result is not healthy. This is a live query check, not cluster health or historical uptime.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "access-history"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "*",
+          "queryType": "lucene",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "observed_at",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "timeField": "observed_at"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Service health",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Application scrape availability",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"access-monitor\"}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Observation age (seconds)",
+      "description": "No result before the first successful collection. Output and delivery have separate success boundaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - access_monitor_last_successful_observation_timestamp_seconds",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Successful observation exists",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "access_monitor_has_observation",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "File report age (seconds)",
+      "description": "File write acceptance is not Elasticsearch acknowledgement.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - (access_monitor_last_full_file_report_timestamp_seconds > 0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Collection outcomes / 15 minutes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (increase(access_monitor_collections_total[15m]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Collection duration p95",
+      "description": "Estimated time within which 95% of collection attempts finish, using the last 30 minutes. Includes successful and failed attempts. Source values are seconds; Grafana may display a scaled time unit.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(access_monitor_collection_duration_seconds_bucket[30m])))",
+          "legendFormat": "p95 collection duration"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Output failures / 15 minutes",
+      "description": "Failed stdout/file report writes in each rolling 15-minute window. Zero means no recorded failures; missing telemetry also falls back to zero. Check monitor reachability and collection freshness separately. This does not measure Filebeat delivery.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (sink) (increase(access_monitor_output_total{result=\"failure\"}[15m])) or on() vector(0)",
+          "legendFormat": "{{sink}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Monitor application logs and errors",
+      "description": "Monitor logs within the selected time range, not Kubernetes user activity. Expand an entry for error details. Old failures remain visible after recovery. Other stack services have separate container logs.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "access-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 25,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "*",
+          "queryType": "lucene",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs",
+              "settings": {
+                "limit": "100"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "observed_at"
+        }
+      ]
+    }
+  ]
+}

@@ -8,9 +8,9 @@ an operational and investigation view.
 **Verification status (2026-11-04):** Go tests, race tests, vet and build passed.
 The local Compose stack was verified against the authorized cluster using read-only
 collection. A complete eight-user snapshot matched across stdout, the report file,
-and Elasticsearch. All 15 data-panel queries and all three Grafana data-source
-health checks succeeded. This is not a production-readiness or outage-recovery claim;
-see [VALIDATION.md](VALIDATION.md) for requirement coverage, evidence and open gaps.
+and Elasticsearch. The three-dashboard layout was checked on 2026-11-05: all 18
+data-panel queries succeeded, including the snapshot-based permission tables.
+This is not a production-readiness or outage-recovery claim.
 No impersonation probes or cluster mutations were performed.
 
 ## Scope and trust boundary
@@ -244,17 +244,62 @@ never receive the elevated `elastic` credential.
 
 Open **http://127.0.0.1:3000** by default, or the port selected by `GRAFANA_PORT`
 in `.env` (the validated local deployment uses **3001**). Use user `admin` and the
-Grafana admin password file. The dashboard URL is `/d/access-monitor`.
+Grafana admin password file. Dashboards:
+
+| Dashboard | URL path | Source |
+| --- | --- | --- |
+| Service health | `/d/access-monitor-health` | Prometheus and Elasticsearch diagnostics |
+| User access | `/d/access-monitor` | Elasticsearch access history |
+| Sensitive access | `/d/access-monitor-sensitive` | Prometheus sensitive-access metrics |
+
+Each dashboard links to the other two, preserving the selected time range.
 Anonymous access and sign-up are disabled. All other endpoints are internal by
-default. The combined dashboard is for viewers authorized to see **all** its rows;
-hiding a row is not access control. Grafana read credentials can read the two selected
+default. Dashboard separation is not access control. Grafana read credentials can read the two selected
 indices; anyone able to use that data source may query beyond a panel's visible filter.
 
-User and snapshot filters are Elasticsearch-backed dropdowns (up to 1,000 values
-within the selected time range). Resource, verb and namespace dropdowns use the
-configured sensitive-policy metric labels, not all recorded RBAC grants. API group
-remains a text input: leave it empty for the core API group. Both access panels
-use raw Elasticsearch DSL; scalar substitutions are explicitly quoted.
+User, resource and verb dropdowns come from Elasticsearch records within the selected
+time range (up to 1,000 values), independently of the sensitive policy. Resource and
+verb accept custom values for concrete permissions covered by wildcard grants.
+Namespace is a searchable dropdown with an All option and custom input; it affects
+historical matching, not the permission tables. Matching searches all API groups;
+the permission tables retain API group as a column. Historical matching handles
+exact resources, `*`, and `*/subresource` patterns within the same grant, including
+verb and scope filters.
+The historical matching panel is independent of the table's selected user/snapshot
+and returns at most 500 observation records, not continuous authorization evidence.
+
+Permission tables use one user or All users and one complete indexed snapshot.
+The resource table retains a username column so users' grants remain separate.
+All-users status/non-resource tables return at most 1,000 records. The namespace
+dropdown includes up to 1,000 recorded values in range, with custom input available.
+The snapshot
+dropdown checks the latest 100 observations in the time range, newest first, and
+defaults to the first option on a fresh dashboard load. Existing URL selections are
+preserved; refresh the dashboard without variable parameters to reset to latest.
+Completeness is enforced by the dropdown, not by each permission-panel query.
+A manually supplied or restored snapshot URL can bypass that validation; reselect
+the snapshot from the populated dropdown before treating the tables as complete.
+Completeness requires an exact distinct-username count equal to a consistent positive
+`expected_users`, and the same document count. A newer partially indexed snapshot
+does not displace an older complete one. Narrow the time range to find older snapshots
+outside the 100-candidate window. No options means no complete snapshot was found
+within that window, not that users have no permissions.
+
+The status table distinguishes **No recorded permissions** from a missing user record
+(no rows). Errors are not empty/healthy states. Resource permissions display API group,
+resource, verb, scope, namespace and resource-name restriction. Verbs/name restrictions
+expand within the same nested grant; `(none)` means no name restriction. Empty API
+group means core. Terms tables use up to 1,000 buckets per column; reaching a limit
+means coverage is not guaranteed. Non-resource URL/verb rules are shown in a separate
+table cell because their existing source field is not indexed. Original provenance
+remains available in the historical records.
+
+The user selector displays usernames but uses numeric character keys internally so
+quotes, backslashes and wildcard characters remain literal identity values. Do not
+replace these keys with raw usernames in saved dashboard URLs. Raw DSL queries and
+Elasticsearch scripts run through the existing read-only Grafana data source; no new
+application service or plugin is needed. The deliverables are the three dashboard
+JSON files, not a generator or Python runtime.
 UI dashboard saves are enabled and persist in Grafana's database, not the JSON
 file. Changes to the provisioning JSON can overwrite UI edits; export edits you
 want to keep. Plugin versions are pinned and automatic startup updates disabled
@@ -278,7 +323,8 @@ manufacture fixtures.
 4. Check the default `secrets/get` query, exact user and snapshot filtering, core/API
    group selection, scope, subresource wildcard grants and original name restrictions.
    A user with only `get pods` and `delete secrets` must **not** match `get secrets`.
-   Confirm the selected-user panel includes known-empty users and expandable provenance.
+    Confirm the selected-user status and tables distinguish known-empty and missing
+    users; inspect historical records for expandable provenance.
 5. Inspect actual Grafana variable interpolation and returned records; raw DSL support
    in upstream source is not proof of working panel configuration. Do not substitute
    flattened independent grant filters if this fails. Treat incompatibility as an
@@ -353,19 +399,27 @@ file/stdout outcomes and latency, loaded users, observation/file-report freshnes
 and Go/process health. A process restart has no restored access snapshot: unknown
 remains unknown until a complete observation succeeds.
 
-The one provisioned dashboard has three rows: service health, access investigation,
-and sensitive access. Time-range history means **observed at least once**, not
-continuous authorization. A snapshot filter selects one observation but does not
-prove every expected user was indexed. Result limits also cap visible coverage.
+Three provisioned dashboards separate service health, access investigation and
+sensitive access. Time-range history means **observed at least once**, not
+continuous authorization. The permission table's snapshot selector checks indexed
+completeness; it does not establish an atomic Kubernetes observation or live access.
+Result limits also cap visible coverage.
 Access variables do not filter aggregate Prometheus counts by username.
 
-**Submission caveats:** the task literally requests two dashboards; the selected
-single combined dashboard may require separate exports if the reviewer insists.
-The all-permissions view is expandable log records rather than the task's dedicated
-user-permissions table. Resource/verb dropdowns cover policy values, not every
-recorded grant; the matching query does not expand `*/subresource` wildcard patterns.
-Filebeat is the selected log-processing/shipping application, not a second custom
-Go Elasticsearch client. These interpretations are disclosed, not assumed waived.
+The requested Elasticsearch and Prometheus dashboards are separate exports, plus
+an additional service-health dashboard. Filebeat is the selected log-processing/
+shipping application, not a second custom Go Elasticsearch client. The richer output
+schema follows the task's allowance to change the example format.
+
+Snapshot completeness, duplicate/inconsistent input rejection, empty/missing users,
+special-character usernames, subresource wildcard matching and same-grant filter
+correlation were exercised using temporary synthetic records in an isolated local
+Elasticsearch index; that index was removed afterward. No cluster RBAC was modified.
+Remaining limitations include missing domain regression tests by request, unverified
+end-to-end prolonged-outage/replay/rotation scenarios, the default Fx global stop
+deadline, finite query limits, manual Elasticsearch retention and fresh-volume plugin
+download dependence. Earlier Git history contains inventory data even though current
+inventory is ignored; review repository-sharing permissions before submission.
 
 ## Storage and operations
 

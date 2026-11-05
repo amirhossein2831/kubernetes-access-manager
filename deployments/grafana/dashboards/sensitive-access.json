@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "utc",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "tags": [
+    "security",
+    "rbac"
+  ],
+  "links": [
+    {
+      "title": "Service health",
+      "type": "link",
+      "url": "/d/access-monitor-health",
+      "keepTime": true,
+      "includeVars": false
+    },
+    {
+      "title": "User access",
+      "type": "link",
+      "url": "/d/access-monitor",
+      "keepTime": true,
+      "includeVars": false
+    },
+    {
+      "title": "Sensitive access",
+      "type": "link",
+      "url": "/d/access-monitor-sensitive",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "uid": "access-monitor-sensitive",
+  "title": "Sensitive access",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Sensitive access — unique monitored users (not filtered by access usernames)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Sensitive namespace user counts",
+      "transformations": [
+        {"id":"labelsToFields","options":{"mode":"columns"}},
+        {"id":"organize","options":{"excludeByName":{"Time":true,"__name__":true,"instance":true,"job":true},"indexByName":{"namespace":0,"resource":1,"verb":2,"Value":3},"renameByName":{"namespace":"Namespace","resource":"Resource","verb":"Verb","Value":"Users","k8s_namespace_sensitive_access_users_count":"Users"}}}
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "k8s_namespace_sensitive_access_users_count",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Cluster-wide sensitive user counts",
+      "transformations": [
+        {"id":"labelsToFields","options":{"mode":"columns"}},
+        {"id":"organize","options":{"excludeByName":{"Time":true,"__name__":true,"instance":true,"job":true},"indexByName":{"resource":0,"verb":1,"Value":2},"renameByName":{"resource":"Resource","verb":"Verb","Value":"Users","k8s_cluster_wide_sensitive_access_users_count":"Users"}}}
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "k8s_cluster_wide_sensitive_access_users_count",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Sensitive namespace count history",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "k8s_namespace_sensitive_access_users_count",
+          "legendFormat": "{{namespace}} {{verb}} {{resource}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Cluster-wide count history",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "k8s_cluster_wide_sensitive_access_users_count",
+          "legendFormat": "{{verb}} {{resource}}"
+        }
+      ]
+    }
+  ]
+}
